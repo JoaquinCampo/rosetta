@@ -154,54 +154,101 @@ fn describe_cron(parts: &[&str]) -> String {
         return format!("Every {} hours", &parts[1][2..]);
     }
 
-    let mut desc = String::new();
+    let mut pieces = Vec::new();
 
-    match (parts[0], parts[1]) {
-        ("*", "*") => desc.push_str("Every minute"),
-        (m, "*") => desc.push_str(&format!("At minute {}", m)),
-        ("*", h) => desc.push_str(&format!("Every minute of hour {}", h)),
-        ("0", h) => desc.push_str(&format!("At {:0>2}:00", h)),
-        (m, h) => desc.push_str(&format!("At {:0>2}:{:0>2}", h, m)),
-    }
+    // Time part
+    let time_desc = match (parts[0], parts[1]) {
+        ("*", "*") => "Every minute".to_string(),
+        (m, "*") if m.starts_with("*/") => format!("Every {} minutes", &m[2..]),
+        (m, "*") => format!("At minute {}", m),
+        ("*", h) => format!("Every minute during hour {}", describe_hour_range(h)),
+        ("0", h) if h.contains('-') || h.contains(',') || h.starts_with("*/") => {
+            format!("Every hour from {}", describe_hour_range(h))
+        }
+        ("0", h) => format!("At {:0>2}:00", h),
+        (m, h) if m.starts_with("*/") => {
+            format!("Every {} minutes during hour {}", &m[2..], describe_hour_range(h))
+        }
+        (m, h) => format!("At {}:{:0>2}", describe_hour_range(h), m),
+    };
+    pieces.push(time_desc);
 
+    // Day of month
     if parts[2] != "*" {
-        desc.push_str(&format!(", on day {}", parts[2]));
+        pieces.push(format!("on day {} of the month", parts[2]));
     }
 
+    // Month
     if parts[3] != "*" {
-        let month_name = match parts[3] {
-            "1" => "January",
-            "2" => "February",
-            "3" => "March",
-            "4" => "April",
-            "5" => "May",
-            "6" => "June",
-            "7" => "July",
-            "8" => "August",
-            "9" => "September",
-            "10" => "October",
-            "11" => "November",
-            "12" => "December",
-            other => other,
-        };
-        desc.push_str(&format!(", in {}", month_name));
+        pieces.push(format!("in {}", describe_month(parts[3])));
     }
 
+    // Day of week
     if parts[4] != "*" {
-        let dow = match parts[4] {
-            "0" | "7" => "Sunday",
-            "1" => "Monday",
-            "2" => "Tuesday",
-            "3" => "Wednesday",
-            "4" => "Thursday",
-            "5" => "Friday",
-            "6" => "Saturday",
-            other => other,
-        };
-        desc.push_str(&format!(", on {}", dow));
+        pieces.push(describe_dow(parts[4]));
     }
 
-    desc
+    pieces.join(", ")
+}
+
+fn describe_hour_range(h: &str) -> String {
+    if h.starts_with("*/") {
+        return format!("every {} hours", &h[2..]);
+    }
+    if h.contains('-') {
+        let bounds: Vec<&str> = h.splitn(2, '-').collect();
+        return format!("{}:00-{}:00", bounds[0], bounds[1]);
+    }
+    h.to_string()
+}
+
+fn month_name(s: &str) -> &'static str {
+    match s {
+        "1" => "January",
+        "2" => "February",
+        "3" => "March",
+        "4" => "April",
+        "5" => "May",
+        "6" => "June",
+        "7" => "July",
+        "8" => "August",
+        "9" => "September",
+        "10" => "October",
+        "11" => "November",
+        "12" => "December",
+        _ => "unknown",
+    }
+}
+
+fn describe_month(m: &str) -> String {
+    if m.contains('-') {
+        let bounds: Vec<&str> = m.splitn(2, '-').collect();
+        format!("{}-{}", month_name(bounds[0]), month_name(bounds[1]))
+    } else {
+        month_name(m).to_string()
+    }
+}
+
+fn dow_name(s: &str) -> &'static str {
+    match s {
+        "0" | "7" => "Sunday",
+        "1" => "Monday",
+        "2" => "Tuesday",
+        "3" => "Wednesday",
+        "4" => "Thursday",
+        "5" => "Friday",
+        "6" => "Saturday",
+        _ => "unknown",
+    }
+}
+
+fn describe_dow(d: &str) -> String {
+    if d.contains('-') {
+        let bounds: Vec<&str> = d.splitn(2, '-').collect();
+        format!("{} through {}", dow_name(bounds[0]), dow_name(bounds[1]))
+    } else {
+        format!("on {}", dow_name(d))
+    }
 }
 
 fn expand_field(field: &str, min: u32, max: u32) -> Vec<u32> {
